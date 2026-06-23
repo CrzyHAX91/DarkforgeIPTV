@@ -1,0 +1,6 @@
+{
+  "name": "Baddbeatz Media",
+  "description": "Premium, secure environment for playing and managing your personal, legal media on Fire OS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
