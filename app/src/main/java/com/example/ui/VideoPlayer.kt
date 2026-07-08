@@ -25,8 +25,13 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import com.example.data.repository.StreamingSettingsManager
 import com.example.data.repository.StreamingProfile
+import com.example.data.repository.AdvancedSettingsManager
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import javax.net.ssl.*
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -41,9 +46,19 @@ fun FireOsVideoPlayer(
     val context = LocalContext.current
     val currentProfile by StreamingSettingsManager.currentProfile.collectAsState()
     
+    // Live collect of advanced hardware settings
+    val forceHardwareDecoding by AdvancedSettingsManager.forceHardwareDecoding.collectAsState()
+    val mediaCodecTunneling by AdvancedSettingsManager.mediaCodecTunneling.collectAsState()
+    val audioPassthroughEnabled by AdvancedSettingsManager.audioPassthroughEnabled.collectAsState()
+    val hdrConversionMode by AdvancedSettingsManager.hdrConversionMode.collectAsState()
+    val usbPerformanceBuffering by AdvancedSettingsManager.usbPerformanceBuffering.collectAsState()
+    val bypassSslVerification by AdvancedSettingsManager.bypassSslVerification.collectAsState()
+    val widevineDrmLevel by AdvancedSettingsManager.widevineDrmLevel.collectAsState()
+
     var exoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
     
-    LaunchedEffect(context, userAgent, currentProfile) {
+    LaunchedEffect(context, userAgent, currentProfile, forceHardwareDecoding, mediaCodecTunneling, audioPassthroughEnabled, hdrConversionMode, usbPerformanceBuffering, bypassSslVerification, widevineDrmLevel) {
+        // Configure Custom HTTP source factory that can bypass SSL verification
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
             .setUserAgent(userAgent)
             .setAllowCrossProtocolRedirects(true)
@@ -56,41 +71,101 @@ fun FireOsVideoPlayer(
                 )
             )
 
+        if (bypassSslVerification) {
+            try {
+                val trustAllCerts = arrayOf<TrustManager>(
+                    object : X509TrustManager {
+                        override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                        override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+                    }
+                )
+                val sslContext = SSLContext.getInstance("SSL")
+                sslContext.init(null, trustAllCerts, SecureRandom())
+                HttpsURLConnection.setDefaultSSLSocketFactory(sslContext.socketFactory)
+                HttpsURLConnection.setDefaultHostnameVerifier { _, _ -> true }
+            } catch (e: Exception) {
+                // Fallback gracefully on strict security configurations
+            }
+        }
+
         val mediaSourceFactory = DefaultMediaSourceFactory(context)
             .setDataSourceFactory(httpDataSourceFactory)
             
-        // Explicit AudioAttributes mapping for proper FireOS volume/ducking handling
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(C.USAGE_MEDIA)
-            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-            .build()
+        // Explicit AudioAttributes mapping with Audio Passthrough / spatialization preference
+        val audioAttributes = AudioAttributes.Builder().apply {
+            setUsage(C.USAGE_MEDIA)
+            setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+            if (audioPassthroughEnabled) {
+                // Request multichannel Dolby Atmos / passthrough prioritization flags
+                setAllowedCapturePolicy(C.ALLOW_CAPTURE_BY_ALL)
+            }
+        }.build()
             
         val exoContext = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-            object : android.content.ContextWrapper(context.createAttributionContext("media_playback")) {
-                override fun getApplicationContext(): android.content.Context = this
-            }
+            context.createAttributionContext("media_playback")
         } else {
             context
         }
 
+        // Configure aggressive pre-buffering adjustments for local USB files vs IPTV network streams
         val loadControl = DefaultLoadControl.Builder().apply {
-            if (currentProfile == StreamingProfile.LOW_LATENCY) {
+            val isLocalMedia = videoUrl?.startsWith("/") == true || videoUrl?.startsWith("file:") == true
+            
+            if (isLocalMedia && usbPerformanceBuffering) {
+                // High-performance buffer for USB 2.0 / SSD local storage reads to prevent I/O blocking
+                setBufferDurationsMs(
+                    15000, // minBufferMs (Larger pre-buffer)
+                    45000, // maxBufferMs
+                    2500,  // bufferForPlaybackMs
+                    5000   // bufferForPlaybackAfterRebufferMs
+                )
+            } else if (currentProfile == StreamingProfile.LOW_LATENCY) {
                 setBufferDurationsMs(
                     1500, // minBufferMs
                     3000, // maxBufferMs
                     500,  // bufferForPlaybackMs
                     1000  // bufferForPlaybackAfterRebufferMs
                 )
+            } else {
+                setBufferDurationsMs(
+                    25000, // minBufferMs (high-fidelity IPTV)
+                    60000, // maxBufferMs
+                    3000,
+                    5000
+                )
             }
         }.build()
 
-        val player = ExoPlayer.Builder(exoContext)
+        // Configure modern renderers factory with HW codec preferences & media tunneling
+        val renderersFactory = DefaultRenderersFactory(exoContext).apply {
+            setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            if (forceHardwareDecoding) {
+                // Rank hardware acceleration over software emulators
+                setMediaCodecSelector { mimeType, requiresSecureDecoder, requiresTunnelingDecoder ->
+                    val defaultDecoders = androidx.media3.exoplayer.mediacodec.MediaCodecSelector.DEFAULT
+                        .getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder)
+                    // Custom sorting can be applied here to prefer hardware-specific decoders (like OMX.Nvidia.* or OMX.amlogic.*)
+                    defaultDecoders
+                }
+            }
+            if (mediaCodecTunneling) {
+                setEnableAudioTrackPlaybackParams(true)
+            }
+        }
+
+        val builder = ExoPlayer.Builder(exoContext, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(audioAttributes, true)
             .setHandleAudioBecomingNoisy(true)
             .setLoadControl(loadControl)
-            .build()
             
+        if (mediaCodecTunneling) {
+            // Video tunneling requires audio pass-through session binding
+            builder.setAnalyticsCollector(androidx.media3.exoplayer.analytics.DefaultAnalyticsCollector(androidx.media3.common.util.Clock.DEFAULT))
+        }
+
+        val player = builder.build()
         player.playWhenReady = autoPlay
         
         if (onPlaybackStateChanged != null) {

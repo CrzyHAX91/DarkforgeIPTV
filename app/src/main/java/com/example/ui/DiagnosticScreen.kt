@@ -43,13 +43,29 @@ fun DiagnosticScreen(onBack: () -> Unit) {
         
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
             // Stats Panel
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier
+                    .weight(1.2f)
+                    .fillMaxHeight()
+            ) {
+                Text("Network Latency Diagnostics", style = MaterialTheme.typography.titleMedium, color = PrimaryColor, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(12.dp))
                 MetricRow("Ping (Latency)", "${diagnosticState.serverPingMs} ms")
                 MetricRow("Jitter", "${diagnosticState.jitterMs} ms")
                 MetricRow("Packet Loss", String.format("%.1f %%", diagnosticState.packetLossPercent))
                 MetricRow("Path Latency", "${diagnosticState.pathLatencyMs} ms")
                 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                Text("On-Device TV Hardware Capability diagnostics", style = MaterialTheme.typography.titleMedium, color = PrimaryColor, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(12.dp))
+                MetricRow("Widevine DRM", diagnosticState.widevineDrmLevel)
+                MetricRow("HDR Dynamic Profiles", diagnosticState.hdrCapabilities)
+                MetricRow("Pass-through Audio", diagnosticState.audioPassthroughCap)
+                MetricRow("Local USB/SSD Storage", diagnosticState.usbMountStatus)
+                MetricRow("HDMI CEC Loopback", diagnosticState.cecStatus)
+                
+                Spacer(modifier = Modifier.height(24.dp))
                 
                 LinearProgressIndicator(
                     progress = { diagnosticState.progress },
@@ -57,45 +73,46 @@ fun DiagnosticScreen(onBack: () -> Unit) {
                     color = PrimaryColor,
                     trackColor = GlassSurface
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(diagnosticState.statusText, color = TextPrimary, style = MaterialTheme.typography.bodyLarge)
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(diagnosticState.statusText, color = TextPrimary, style = MaterialTheme.typography.bodyMedium)
                 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(24.dp))
                 
-                if (!isRunning) {
-                    PrimaryTvButton(
-                        text = if (diagnosticState.isComplete) "Run Again" else "Start Diagnostics",
-                        onClick = {
-                            if (!isRunning) {
-                                isRunning = true
-                                coroutineScope.launch {
-                                    diagnosticService.runDiagnostics("edge-cdn.provider.com").collect { state ->
-                                        diagnosticState = state
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    if (!isRunning) {
+                        PrimaryTvButton(
+                            text = if (diagnosticState.isComplete) "Nieuwe Test Uitvoeren" else "Start Volledige Diagnostiek",
+                            onClick = {
+                                if (!isRunning) {
+                                    isRunning = true
+                                    coroutineScope.launch {
+                                        diagnosticService.runDiagnostics("edge-cdn.provider.com").collect { state ->
+                                            diagnosticState = state
+                                        }
+                                        isRunning = false
                                     }
-                                    isRunning = false
                                 }
                             }
-                        }
+                        )
+                    }
+                    SecondaryTvButton(
+                        text = "Terug naar Instellingen",
+                        onClick = onBack
                     )
                 }
-                Spacer(modifier = Modifier.height(16.dp))
-                SecondaryTvButton(
-                    text = "Back to Settings",
-                    onClick = onBack
-                )
             }
             
             // Score visualization
             Box(
                 modifier = Modifier
-                    .weight(1f)
+                    .weight(0.8f)
                     .fillMaxHeight()
                     .background(SurfaceColor, RoundedCornerShape(16.dp))
                     .padding(32.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Stream Health Score", color = TextSecondary, style = MaterialTheme.typography.titleLarge)
+                    Text("Hardware & Stream Index", color = TextSecondary, style = MaterialTheme.typography.titleLarge)
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     val scoreColor = when {
@@ -108,21 +125,29 @@ fun DiagnosticScreen(onBack: () -> Unit) {
                         Text(
                             text = String.format("%.0f", diagnosticState.healthScore),
                             style = MaterialTheme.typography.displayLarge,
-                            fontSize = 120.sp,
+                            fontSize = 110.sp,
                             color = scoreColor,
                             fontWeight = FontWeight.Bold
                         )
                     } else if (isRunning) {
-                        CircularProgressIndicator(color = PrimaryColor, modifier = Modifier.size(120.dp))
+                        CircularProgressIndicator(color = PrimaryColor, modifier = Modifier.size(110.dp))
                     } else {
                         Text(
                             text = "--",
                             style = MaterialTheme.typography.displayLarge,
-                            fontSize = 120.sp,
+                            fontSize = 110.sp,
                             color = TextSecondary,
                             fontWeight = FontWeight.Bold
                         )
                     }
+                    
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = if (diagnosticState.isComplete) "✓ Perfect geoptimaliseerd voor Fire OS & SHIELD TV" else "Klik op Start om te testen",
+                        color = if (diagnosticState.isComplete) SuccessColor else TextSecondary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
         }

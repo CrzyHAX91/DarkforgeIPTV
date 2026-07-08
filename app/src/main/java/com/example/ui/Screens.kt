@@ -25,6 +25,10 @@ import kotlinx.coroutines.launch
 import com.example.ui.theme.*
 
 import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalFocusManager
 import com.example.data.repository.MockMediaRepository
 import com.example.data.model.Category
 
@@ -43,6 +47,7 @@ fun HomeScreen(
     onNavigateToApps: () -> Unit,
     onNavigateToAmbient: () -> Unit
 ) {
+    val focusManager = LocalFocusManager.current
     val repository = remember { MockMediaRepository() }
     val recommendations by repository.getRecommendations().collectAsState(initial = emptyList())
 
@@ -103,10 +108,16 @@ fun HomeScreen(
         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 56.dp, vertical = 16.dp)) {
             OutlinedTextField(
                 value = searchQuery,
-                onValueChange = { searchQuery = it },
+                onValueChange = { searchQuery = it.replace("\n", "").replace("\r", "") },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Search streams or categories...", color = TextSecondary) },
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Search
+                ),
+                keyboardActions = KeyboardActions(
+                    onSearch = { focusManager.clearFocus() }
+                ),
                 leadingIcon = {
                     Icon(androidx.compose.material.icons.Icons.Default.Search, contentDescription = "Search", tint = TextSecondary)
                 },
@@ -129,9 +140,12 @@ fun HomeScreen(
         ) {
             if (currentTabName == "Home" || !isXtreamConnected) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
+                    val isVirtual = connectedServerUrl == "http://virtueel-netwerk.local:8080"
                     HeroBanner(
-                        title = if (isXtreamConnected) "Baddbeatz Connected" else "Baddbeatz Media",
-                        description = if (isXtreamConnected) {
+                        title = if (isVirtual) "Virtuele Demomodus" else if (isXtreamConnected) "Baddbeatz Connected" else "Baddbeatz Media",
+                        description = if (isVirtual) {
+                            "De applicatie draait momenteel in de Virtuele Demomodus. Alle functies, zenders, streams en QoS-diagnostieken functioneren volledig virtueel (gesimuleerd in 4K)."
+                        } else if (isXtreamConnected) {
                             "Successfully connected to premium gateway: $connectedServerUrl (User: $connectedUser). Fully isolated & encrypted data tunneling active."
                         } else {
                             "Your premium, secure environment for playing and managing personal, legal media. Connect via Xtream Codes above."

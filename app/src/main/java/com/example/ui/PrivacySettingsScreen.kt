@@ -1,9 +1,17 @@
 package com.example.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Info
@@ -203,8 +211,34 @@ fun ConsentScreen(onAccept: () -> Unit, onDecline: () -> Unit, onReadPolicy: () 
                 SecondaryTvButton("Decline", onClick = onDecline)
             }
             Spacer(modifier = Modifier.height(24.dp))
-            TextButton(onClick = onReadPolicy) {
-                Text("Read Full Privacy Policy", color = PrimaryColor)
+            val policyInteractionSource = remember { MutableInteractionSource() }
+            val isPolicyFocused by policyInteractionSource.collectIsFocusedAsState()
+            val policyScale by animateFloatAsState(targetValue = if (isPolicyFocused) 1.05f else 1.0f, label = "policyScale")
+
+            Box(
+                modifier = Modifier
+                    .scale(policyScale)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(if (isPolicyFocused) PrimaryColor.copy(alpha = 0.2f) else Color.Transparent)
+                    .border(
+                        width = if (isPolicyFocused) 1.5.dp else 0.dp,
+                        color = if (isPolicyFocused) PrimaryColor else Color.Transparent,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .clickable(
+                        interactionSource = policyInteractionSource,
+                        indication = null,
+                        onClick = onReadPolicy
+                    )
+                    .focusable(interactionSource = policyInteractionSource)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Read Full Privacy Policy",
+                    color = if (isPolicyFocused) PrimaryColor else TextSecondary,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
     }
